@@ -9,6 +9,8 @@
   /* 별점 저장소(구글 시트 Apps Script 웹 앱 주소). 비어 있으면 이 브라우저에만 기억한다. */
   var RATING_URL = "https://script.google.com/macros/s/AKfycbxjs_5plZKX-UFW_yoAvwoVuhU43fqvXjpwipotltpro_dyK73d1EM0B9-6rb84cUrA3w/exec";
 
+  /* 움직임 줄이기 설정이면 부드러운 스크롤 대신 바로 이동 */
+  function motion() { return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"; }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function key(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
   function hashFor(iss) { return "ho-" + iss.date.replace(/-/g, ""); }
@@ -54,7 +56,259 @@
     }
     window.scrollTo(0, 0);
     initRatings(iss);
+    try { tieText(document.getElementById("issue")); } catch (e) {}
+    try { setupSides(); } catch (e) {}
   }
+
+  /* ── 줄바꿈 묶기 ──────────────────────────────
+     본문은 양끝 정렬 + 한글 글자 사이 줄바꿈(app.css)이라, 숫자와 단위(2019|년, 100|분), 영문과 조사(ERV|가),
+     가운뎃점 양옆(2호|·3호)이 줄 끝에서 갈라질 수 있다. 그런 자리만 <span class="nb">(줄바꿈 금지)로 묶는다.
+     글자는 바꾸지 않으므로 복사·검색·낭독에는 영향이 없다. */
+  var RX_AN = /[0-9A-Za-zμ²³°℃%]/, RX_H = /[가-힣]/, RX_TOK = /[0-9A-Za-zμ²³°℃%.,~\/+\-−×]/, RX_CL = /[)\]’”]/;
+  function joint(a2, a, b) {
+    if (!a || /\s/.test(a) || /\s/.test(b)) return 0;
+    if (RX_AN.test(a) && RX_H.test(b)) return 2;                    // 2019년, ERV가, 120kW의
+    if (RX_CL.test(a) && RX_H.test(b) && a2 && RX_AN.test(a2)) return 2; // (fMRI)을
+    if (a === "·" || b === "·") return 2;                          // 2호·3호, 성질·통계
+    if (RX_TOK.test(a) && (RX_TOK.test(b) || RX_CL.test(b))) return 1; // 숫자·영문 낱말 안
+    return 0;
+  }
+  function tieNode(node) {
+    var s = node.data;
+    if (s.length < 2 || !/[0-9A-Za-z·]/.test(s)) return;
+    var groups = [], start = 0, prot = false;
+    for (var i = 1; i <= s.length; i++) {
+      var j = i < s.length ? joint(s[i - 2], s[i - 1], s[i]) : 0;
+      if (j === 2) prot = true;
+      if (!j) { if (prot && i - start > 1) groups.push([start, i]); start = i; prot = false; }
+    }
+    if (!groups.length) return;
+    var frag = document.createDocumentFragment(), pos = 0;
+    groups.forEach(function (g) {
+      if (g[0] > pos) frag.appendChild(document.createTextNode(s.slice(pos, g[0])));
+      var sp = document.createElement("span"); sp.className = "nb"; sp.textContent = s.slice(g[0], g[1]);
+      frag.appendChild(sp); pos = g[1];
+    });
+    if (pos < s.length) frag.appendChild(document.createTextNode(s.slice(pos)));
+    node.parentNode.replaceChild(frag, node);
+  }
+  function tieText(root) {
+    if (!root || !document.createTreeWalker) return;
+    var skip = "svg, sup, a, table, .nb, h2, h3, h4, h5, script, style, .sources, .rate";
+    var areas = root.querySelectorAll(".story .main, .story .side, .brief p");
+    Array.prototype.forEach.call(areas, function (area) {
+      var w = document.createTreeWalker(area, NodeFilter.SHOW_TEXT, null), n, list = [];
+      while ((n = w.nextNode())) if (!n.parentElement.closest(skip)) list.push(n);
+      list.forEach(tieNode);
+    });
+  }
+
+  /* ── 곁상자 배치 ──────────────────────────────
+     상자마다 '관련 단락'을 정한다.
+       ① 상자에 data-near="단락 번호"(0 = 리드, 1 = 첫 소제목…)가 있으면 그것.
+       ② 용어 상자처럼 <dl>이 있으면 첫 용어가 본문에 처음 나오는 단락.
+       ③ 아니면 상자 글과 겹치는 낱말(드문 낱말일수록 무겁게)이 가장 많은 단락.
+     넓은 화면(1024px 이상): 상자를 그 단락의 소제목 높이에 놓고, 겹치면 아래로, 본문보다 길어지면 위로 당긴다.
+       표(.tbl)는 곁 단까지 펼치고, 상자는 그 높이를 비켜 간다.
+     좁은 화면: 상자를 그 단락 첫 문단 뒤로 옮기고, 화면 높이의 62%보다 길면 접어 두고 '전체 보기' 단추를 단다.
+     JS가 없거나 오류가 나면 예전처럼 곁 단(좁은 화면은 본문 아래)에 쌓인 채로 남는다. */
+  var LAYS = [], RO = null, WIDE_Q = "(min-width: 1024px)", rafId = 0;
+  function wideNow() { return window.matchMedia ? window.matchMedia(WIDE_Q).matches : window.innerWidth >= 1024; }
+  function words(text) {
+    var out = {}, m, s, i;
+    var hr = /[가-힣]{2,}/g;
+    while ((m = hr.exec(text))) { s = m[0]; for (i = 0; i < s.length - 1; i++) out[s.substr(i, 2)] = 1; }
+    var lr = /[A-Za-z]{2,}|[0-9][0-9.,~]*[%A-Za-zμ가-힣]?/g;
+    while ((m = lr.exec(text))) out[m[0].toLowerCase()] = 1;
+    return out;
+  }
+  function sectionsOf(main) {
+    var secs = [{ h3: null, els: [] }];
+    Array.prototype.forEach.call(main.children, function (el) {
+      if (el.tagName === "H3") secs.push({ h3: el, els: [] }); else secs[secs.length - 1].els.push(el);
+    });
+    secs.forEach(function (s) {
+      var p = null, lead = null;
+      s.els.forEach(function (e) { if (e.tagName === "P") { if (!p) p = e; if (!lead && e.classList.contains("lead")) lead = e; } });
+      s.after = lead || p || s.h3;
+      s.text = (s.h3 ? s.h3.textContent : "") + " " + s.els.map(function (e) { return e.textContent; }).join(" ");
+      s.w = words(s.text);
+      s.n = Object.keys(s.w).length || 1;
+    });
+    return secs;
+  }
+  function anchorOf(box, secs) {
+    var near = box.getAttribute("data-near");
+    if (near !== null && near !== "" && !isNaN(+near)) return Math.max(0, Math.min(secs.length - 1, +near));
+    var dt = box.querySelector("dl dt");
+    if (dt) {
+      var term = dt.textContent.replace(/[(（].*$/, "").trim().split(/[\s·,]/)[0].replace(/(과|와)$/, "");
+      if (term.length >= 2) for (var i = 0; i < secs.length; i++) if (secs[i].text.indexOf(term) >= 0) return i;
+    }
+    var bw = words(Array.prototype.map.call(box.childNodes, function (c) { return c.nodeName === "H5" ? "" : c.textContent; }).join(" "));
+    var S = secs.length, best = 0, bestScore = 0;
+    secs.forEach(function (s, j) {
+      var sc = 0;
+      Object.keys(bw).forEach(function (t) {
+        if (!s.w[t]) return;
+        var df = 0; secs.forEach(function (x) { if (x.w[t]) df++; });
+        sc += Math.max(0, Math.log((S + 1) / (df + 0.5)));
+      });
+      sc = sc / Math.pow(s.n, 0.35);
+      if (sc > bestScore + 1e-9) { bestScore = sc; best = j; }
+    });
+    return best;
+  }
+  function setupSides() {
+    if (RO) { RO.disconnect(); }
+    LAYS = [];
+    var bodies = document.querySelectorAll("#issue .story > .body");
+    Array.prototype.forEach.call(bodies, function (body, bi) {
+      var main = body.querySelector(":scope > .main"), side = body.querySelector(":scope > .side");
+      if (!main || !side) return;
+      var boxes = Array.prototype.filter.call(side.children, function (el) { return el.classList.contains("box"); });
+      if (!boxes.length) return;
+      var secs = sectionsOf(main);
+      var art = body.closest(".story");
+      boxes.forEach(function (b, i) {
+        b._order = i; b._sec = anchorOf(b, secs);
+        if (!b.id) b.id = (art && art.id ? art.id : "art" + bi) + "-box" + (i + 1);
+      });
+      var sorted = boxes.slice().sort(function (a, b) { return a._sec - b._sec || a._order - b._order; });
+      LAYS.push({ body: body, main: main, side: side, boxes: boxes, sorted: sorted, secs: secs, mode: "" });
+    });
+    if (!LAYS.length) return;
+    if (window.ResizeObserver) {
+      RO = new ResizeObserver(function () { schedule(); });
+      LAYS.forEach(function (st) { RO.observe(st.main); });
+    }
+    layoutAll();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+  }
+  function schedule() {
+    if (rafId) return;
+    rafId = (window.requestAnimationFrame || setTimeout)(function () { rafId = 0; layoutAll(); });
+  }
+  function layoutAll() {
+    var wide = wideNow();
+    LAYS.forEach(function (st) {
+      try { if (wide) layWide(st); else layNarrow(st); } catch (e) {}
+    });
+  }
+  function px(v) { return parseFloat(v) || 0; }
+  function clearMore(box) {
+    var nx = box.nextElementSibling;
+    if (nx && nx.classList.contains("box-more")) nx.parentNode.removeChild(nx);
+    box.classList.remove("is-folded", "has-more");
+    box.style.removeProperty("--fold-h");
+  }
+  function layWide(st) {
+    if (st.mode !== "wide") {
+      st.boxes.forEach(function (b) { clearMore(b); b.classList.remove("box--inset"); st.side.appendChild(b); });
+      st.side.hidden = false;
+      st.side.classList.add("is-laid");
+      st.body.classList.add("is-laid");
+      st.mode = "wide";
+    }
+    var cs = getComputedStyle(st.body);
+    var gapX = px(cs.columnGap), GAP = px(cs.rowGap) || 48;
+    var sideRect = st.side.getBoundingClientRect();
+    st.body.style.setProperty("--span", Math.round(sideRect.width + gapX) + "px");
+    var top0 = st.main.getBoundingClientRect().top;
+    var mainH = st.main.getBoundingClientRect().height;
+    var obs = Array.prototype.map.call(st.main.querySelectorAll(":scope > .tbl"), function (el) {
+      var r = el.getBoundingClientRect(); return { a: r.top - top0 - GAP / 2, b: r.bottom - top0 + GAP / 2 };
+    });
+    function hit(t, h) { for (var i = 0; i < obs.length; i++) if (t < obs[i].b && t + h > obs[i].a) return obs[i]; return null; }
+    var items = st.sorted.map(function (b) {
+      var s = st.secs[b._sec], want = 0;
+      if (s && s.h3 && s.h3.isConnected) want = s.h3.getBoundingClientRect().top - top0;
+      return { el: b, h: b.offsetHeight, want: Math.max(0, want), t: 0 };
+    });
+    // 1) 위에서부터: 원하는 높이에, 앞 상자와 겹치지 않게, 펼친 표를 비켜서
+    var cur = 0, o;
+    items.forEach(function (it) {
+      var t = Math.max(it.want, cur), guard = 0;
+      while ((o = hit(t, it.h)) && guard++ < 20) t = o.b;
+      it.t = t; cur = t + it.h + GAP;
+    });
+    // 2) 마지막 상자가 본문보다 아래로 나가면, 아래에서부터 위로 당긴다(원래 높이보다 위로도 갈 수 있다)
+    var last = items[items.length - 1];
+    if (last && last.t + last.h > mainH) {
+      var lim = mainH;
+      for (var i = items.length - 1; i >= 0; i--) {
+        var it = items[i], t = Math.min(it.t, lim - it.h), guard = 0;
+        while ((o = hit(t, it.h)) && guard++ < 20) t = o.a - it.h;
+        it.t = t; lim = t - GAP;
+      }
+      // 3) 맨 위를 넘어가면 위에서부터 다시 쌓는다(이때는 곁 단이 본문보다 길어진다)
+      if (items[0].t < 0) {
+        cur = 0;
+        items.forEach(function (it) { var t = Math.max(it.t, cur), g = 0; while ((o = hit(t, it.h)) && g++ < 20) t = o.b; it.t = t; cur = t + it.h + GAP; });
+      }
+    }
+    var bottom = 0;
+    items.forEach(function (it) { it.el.style.top = Math.round(it.t) + "px"; bottom = Math.max(bottom, it.t + it.h); });
+    st.side.style.height = Math.ceil(bottom) + "px";
+  }
+  function layNarrow(st) {
+    if (st.mode !== "narrow") {
+      st.side.classList.remove("is-laid");
+      st.body.classList.remove("is-laid");
+      st.body.style.removeProperty("--span");
+      st.side.style.height = "";
+      var lastBySec = {};
+      st.sorted.forEach(function (b) {
+        b.style.top = "";
+        var s = st.secs[b._sec];
+        var ref = lastBySec[b._sec] || (s && s.after);
+        if (ref && ref.parentNode === st.main) ref.parentNode.insertBefore(b, ref.nextSibling);
+        else st.main.insertBefore(b, st.main.firstChild);
+        b.classList.add("box--inset");
+        lastBySec[b._sec] = b;
+      });
+      st.side.hidden = true;
+      st.mode = "narrow";
+    }
+    // 긴 상자 접기: 화면 높이의 62%보다 길면 36%만 보이게
+    var vh = window.innerHeight || 800;
+    var limit = Math.max(420, vh * 0.62), foldH = Math.round(Math.max(260, vh * 0.36));
+    st.sorted.forEach(function (b) {
+      var title = (b.querySelector("h5") || {}).textContent || "상자";
+      var more = b.nextElementSibling && b.nextElementSibling.classList.contains("box-more") ? b.nextElementSibling : null;
+      var full = b.scrollHeight;
+      if (full <= limit + 40) { if (more) clearMore(b); return; }
+      if (!more) {
+        more = document.createElement("button");
+        more.type = "button"; more.className = "box-more";
+        more.setAttribute("aria-controls", b.id);
+        more.addEventListener("click", function () {
+          var open = more.getAttribute("aria-expanded") === "true";
+          setFold(b, more, title, open);
+          if (open) {
+            var r = b.getBoundingClientRect();
+            if (r.top < 60) window.scrollBy(0, r.top - 72);
+          }
+        });
+        b.parentNode.insertBefore(more, b.nextSibling);
+        setFold(b, more, title, true);
+      }
+      b.style.setProperty("--fold-h", foldH + "px");
+    });
+  }
+  function setFold(b, more, title, fold) {
+    b.classList.add("has-more");
+    b.classList.toggle("is-folded", fold);
+    more.setAttribute("aria-expanded", fold ? "false" : "true");
+    more.textContent = fold ? "‘" + title.trim() + "’ 전체 보기" : "‘" + title.trim() + "’ 접기";
+  }
+  window.addEventListener("resize", function () { if (LAYS.length) schedule(); });
+  /* 인쇄할 때는 접힌 답을 모두 펼치고, 끝나면 되돌린다 */
+  var printOpened = [];
+  window.addEventListener("beforeprint", function () {
+    printOpened = Array.prototype.filter.call(document.querySelectorAll("#issue details.ans:not([open])"), function (d) { d.open = true; return true; });
+  });
+  window.addEventListener("afterprint", function () { printOpened.forEach(function (d) { d.open = false; }); printOpened = []; });
 
   /* 독자 별점: 기사 끝 .rate 블록. 점수는 시트에 쌓이고, 목요일 기획 회의가 다음 호 기사 고를 때 참고한다. */
   function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
@@ -104,7 +358,7 @@
     if (!RATING_URL) return;
     try {
       fetch(RATING_URL, { method: "POST", mode: "no-cors", headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ issue: date, article: art, v: v, rid: readerId() }) });
+        body: JSON.stringify({ issue: date, article: art, v: v, rid: readerId() }) }).catch(function () {});
     } catch (e) {}
   }
   function loadAverages(iss) {
@@ -126,7 +380,7 @@
     var target = document.getElementById(t.getAttribute("data-goto"));
     if (target) {
       e.preventDefault();
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.scrollIntoView({ behavior: motion(), block: "start" });
     }
   });
 
@@ -188,7 +442,7 @@
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeCal(); });
     $("#btn-toc").addEventListener("click", function () {
       var t = document.getElementById("toc");
-      if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (t) t.scrollIntoView({ behavior: motion(), block: "start" });
     });
     window.addEventListener("hashchange", function () {
       var iss = fromHash();
