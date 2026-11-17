@@ -1,4 +1,4 @@
-/* 석스코프 화면 동작: 호 불러오기, 달력(과월호), 차례 이동, 독자 별점 */
+/* 바이오스 화면 동작: 호 불러오기, 달력(과월호), 차례 이동, 독자 별점 */
 (function () {
   "use strict";
   var issues = [];
@@ -24,7 +24,7 @@
   function setBar(iss) {
     var el = $("#bar-issue");
     if (el) el.textContent = iss.label + " · " + iss.dateLabel + " · " + iss.title;
-    document.title = "석스코프 " + iss.label;
+    document.title = "바이오스 " + iss.label;
   }
 
   function load(iss, push) {
@@ -36,7 +36,7 @@
       after(push, iss);
       return;
     }
-    host.innerHTML = '<div class="loading">석스코프 ' + iss.label + " 펼치는 중…</div>";
+    host.innerHTML = '<div class="loading">바이오스 ' + iss.label + " 펼치는 중…</div>";
     fetch(iss.file).then(function (r) {
       if (!r.ok) throw new Error(r.status);
       return r.text();
