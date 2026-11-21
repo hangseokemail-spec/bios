@@ -267,6 +267,9 @@ p { text-wrap: pretty; }
 .toc-list li.toc-feature p { font-size: 16px; font-family: var(--serif); font-weight: 500; }
 /* 썸네일 없는 옛 차례에서는 쪽 번호를 크게 */
 .toc-list a:not(:has(.toc-thumb)) { grid-template-areas: "pg text"; }
+/* 기사 4편 호(2호~): 데스크톱 3단에서 커버 카드가 세 줄을 차지해 오른쪽 단에 나머지 셋이 쌓인다 */
+@media (min-width: 1024px) { .toc-list.toc-4 li.toc-feature { grid-row: span 3; } }
+
 
 /* ── 기사 공통 ──────────────────────────── */
 .story { border-top: 4px solid var(--c); background: var(--paper); }
@@ -318,6 +321,9 @@ p { text-wrap: pretty; }
    크기 = (2 × 1.8 + 0.975) ÷ 0.98 = 4.67em → 잉크 위 끝이 첫 줄 한글 윗선, 아래 끝이 셋째 줄 한글 아랫선에 맞는다.
    위 여백 0.0308em(드롭캡 기준). 리드 행간 1.8을 바꾸면 이 두 값도 다시 계산한다. */
 .main > p.lead::first-letter { font-family: var(--serif); font-weight: 900; float: left; font-size: 4.67em; line-height: 1; margin: .0308em .09em 0 -.035em; padding: 0; color: var(--c); }
+
+/* 휴대폰: 첫 글자 장식 옆의 짧은 줄에서 글자 사이가 크게 벌어져(2호 A3 '과 서 속 D N A 는') 리드만 왼쪽 정렬 */
+@media (max-width: 767px) { .main > p.lead { text-align: left; } }
 .main > h3 { position: relative; font-family: var(--serif); font-weight: 900; font-size: max(22px, calc(var(--fs) * 1.4)); line-height: var(--L); letter-spacing: -.03em; margin: calc(var(--L) * 1.5) 0 calc(var(--L) * .5); padding-top: calc(var(--L) * .5); }
 .main > h3::before { content: ""; position: absolute; top: 0; left: 0; width: 36px; height: 3px; background: var(--c); }
 .main > h4 { font-family: var(--sans); font-weight: 700; font-size: var(--fs); line-height: var(--L); margin: var(--L) 0 0; color: var(--ink); }
