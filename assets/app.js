@@ -56,6 +56,7 @@
     }
     window.scrollTo(0, 0);
     initRatings(iss);
+    try { tieLast(document.getElementById("issue")); } catch (e) {}
     try { tieText(document.getElementById("issue")); } catch (e) {}
     try { setupSides(); } catch (e) {}
   }
@@ -95,11 +96,32 @@
   function tieText(root) {
     if (!root || !document.createTreeWalker) return;
     var skip = "svg, sup, a, table, .nb, h2, h3, h4, h5, script, style, .sources, .rate";
-    var areas = root.querySelectorAll(".story .main, .story .side, .brief p");
+    var areas = root.querySelectorAll(".story .main, .story .side, .story .hero .dek, .brief p, .notice, .toc-head p, .toc-list p, .cover-main p, .colophon p");
     Array.prototype.forEach.call(areas, function (area) {
       var w = document.createTreeWalker(area, NodeFilter.SHOW_TEXT, null), n, list = [];
       while ((n = w.nextNode())) if (!n.parentElement.closest(skip)) list.push(n);
       list.forEach(tieNode);
+    });
+  }
+
+  /* ── 끝줄 외톨이 막기(13판) ─────────────────────
+     양끝 정렬 + 글자 사이 줄바꿈에서는 문단 끝 낱말이 '들여다봅|니다.'처럼 갈려 마지막 줄에 두세 글자만 남을 수 있다.
+     문단의 마지막 낱말(14자 이하)만 <span class="nb">로 묶어(tieText보다 먼저 — '10층이다.'를 통째로), 마지막 줄에 적어도 낱말 하나가 통째로 가게 한다. */
+  var LAST_SEL = ".story .main > p, .story .main > ul > li, .story .main > ol > li, .story .side p, .story .side li, .story .side dd, " +
+    ".story figcaption, .ans-body p, .ans-body li, .think-note, .debate p, .debate li, .debate-mid, .story .hero .dek, " +
+    ".notice p, .toc-head p, .toc-list p, .cover-main p, .colophon p, .sources li, .brief p, .show-head p, .prod p, .vid p";
+  function tieLast(root) {
+    if (!root || !document.createTreeWalker) return;
+    Array.prototype.forEach.call(root.querySelectorAll(LAST_SEL), function (el) {
+      if (el.querySelector("p, li, dd, details, table, svg")) return;
+      var w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null), n, last = null;
+      while ((n = w.nextNode())) if (/\S/.test(n.data) && !n.parentElement.closest("sup, svg")) last = n;
+      if (!last || last.parentElement.closest(".nb")) return;
+      var m = /(\S+\s\S{1,3}|\S+)(\s*)$/.exec(last.data);   // 끝 낱말이 세 글자 이하면 앞 낱말까지 함께
+      if (!m || m[1].length < 2 || m[1].length > (last.parentElement.closest("a") ? 24 : 16)) return;
+      var sp = document.createElement("span"); sp.className = "nb"; sp.textContent = m[1];
+      var tail = m.index ? last.splitText(m.index) : last; tail.data = m[2];
+      tail.parentNode.insertBefore(sp, tail);
     });
   }
 

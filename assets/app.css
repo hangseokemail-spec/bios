@@ -102,13 +102,17 @@ a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px soli
 h1, h2, h3, h4, h5 { text-wrap: balance; }
 p { text-wrap: pretty; }
 
-/* 줄글(본문·리드·답)은 양끝 정렬 + 한글 글자 사이 줄바꿈.
+/* 줄글은 어디든 양끝 정렬 + 한글 글자 사이 줄바꿈(13판, 선생님 지시 2026-11-21 "문단 모양 양쪽 정렬 형태로 맞춰줘..어디든",
+   "잡지책처럼 정렬 잘 신경써줘"). 본문·리드·답·곁상자·캡션·찬반·생각해 볼 질문·안내 상자·차례 설명·표지 문구·부제·판권·출처까지.
+   양끝 정렬에서 빼는 것은 제목(h1~h5)과 표 칸, 한 줄짜리 꼬리표뿐이다.
    keep-all + 양끝 정렬은 휴대폰에서 띄어쓰기가 최대 46px(보통의 10배)까지 벌어져 쓰지 않는다(tools/breakcheck.py).
-   숫자+단위(2019년, 3.3mm), 영문+조사(ERV가)는 app.js가 <span class="nb">로 묶어 쪼개지지 않게 한다.
-   제목·부제·캡션·상자·표는 keep-all + 왼쪽 정렬 그대로. */
-.main > p, .main > ul > li, .main > ol > li, .ans-body p, .brief p {
+   숫자+단위(2019년, 3.3mm), 영문+조사(ERV가)는 app.js가 <span class="nb">로 묶어 쪼개지지 않게 한다. */
+.main > p, .main > ul > li, .main > ol > li, .ans-body p, .ans-body li, .brief p,
+.notice, .notice p, .toc-head p, .toc-list p, .cover-main p, .hero .dek, .edit-note span,
+.box p, .box li, .box dd, .fig figcaption, .debate p, .debate li, .debate-mid, .think li, .think-note,
+.pull, .num-box p, .colophon p, .sources li, .sources p, .show-head p, .prod p, .vid p {
   text-align: justify; text-justify: inter-character; word-break: normal; line-break: strict; overflow-wrap: break-word;
-  text-wrap: pretty; hanging-punctuation: none;
+  text-wrap: pretty; hanging-punctuation: none; /* pretty: 끝줄이 짧게 남지 않게 줄을 다시 나눈다(태블릿 실측 띄어쓰기 최대 0.55em, 끝줄 3글자 이하 0) */
 }
 /* text-justify: inter-character — 남는 폭을 띄어쓰기에만 몰지 않고 글자 사이에도 나눈다(휴대폰 띄어쓰기 최대 17.5px → 7.1px).
    지원하지 않는 브라우저(사파리)는 띄어쓰기로만 맞춘다. */
@@ -233,13 +237,14 @@ p { text-wrap: pretty; }
 /* ── 시험호 안내 ─────────────────────────── */
 .notice { margin: 32px max(var(--gutter), calc((100% - var(--wrap)) / 2 + var(--gutter))) 0; padding: 16px 0 16px 20px; border-left: 4px solid var(--brand); font-size: 15px; line-height: 1.75; color: var(--ink2); }
 .notice b { color: var(--ink); }
+.notice p { margin: 0; }
 
 /* ── 차례 ─────────────────────────────── */
 .toc { max-width: var(--wrap); margin: 0 auto; padding: 64px var(--gutter) 80px; }
 .toc-head { display: grid; grid-template-columns: auto 1fr; align-items: end; gap: 8px 28px; border-bottom: 2px solid var(--ink); padding-bottom: 14px; margin-bottom: 28px; }
 .toc-head h2 { font-family: var(--serif); font-weight: 900; font-size: clamp(44px, 5.6vw, 72px); margin: 0; line-height: .95; letter-spacing: -.04em; }
 .toc-head h2 small { display: block; font: 600 12px/1 var(--mono); letter-spacing: .24em; color: var(--mute); margin-bottom: 10px; }
-.toc-head p { margin: 0; color: var(--mute); font-size: 14px; line-height: 1.6; justify-self: end; text-align: right; max-width: 36em; }
+.toc-head p { margin: 0; color: var(--mute); font-size: 14px; line-height: 1.6; justify-self: end; max-width: 36em; }
 .toc-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; grid-auto-flow: row dense; }
 .toc-list li { border-top: 1px solid var(--rule); }
 .toc-list a { display: grid; grid-template-columns: 56px minmax(0, 1fr); grid-template-areas: "thumb thumb" "pg text"; gap: 0 12px; padding: 20px 0 26px; text-decoration: none; height: 100%; align-content: start; }
@@ -322,8 +327,14 @@ p { text-wrap: pretty; }
    위 여백 0.0308em(드롭캡 기준). 리드 행간 1.8을 바꾸면 이 두 값도 다시 계산한다. */
 .main > p.lead::first-letter { font-family: var(--serif); font-weight: 900; float: left; font-size: 4.67em; line-height: 1; margin: .0308em .09em 0 -.035em; padding: 0; color: var(--c); }
 
-/* 휴대폰: 첫 글자 장식 옆의 짧은 줄에서 글자 사이가 크게 벌어져(2호 A3 '과 서 속 D N A 는') 리드만 왼쪽 정렬 */
-@media (max-width: 767px) { .main > p.lead { text-align: left; } }
+/* 휴대폰: 첫 글자 장식 옆의 짧은 줄에서 글자 사이가 벌어지지 않게(2호 A3 '과 서 속 D N A 는'), 리드도 양끝 정렬은 그대로 두고
+   남는 폭을 띄어쓰기에만 나눈다(13판 — 예전에는 왼쪽 정렬로 피했음). */
+@media (max-width: 767px) {
+  .main > p.lead { text-justify: inter-word; }
+  /* 휴대폰은 줄이 짧아 3줄 첫 글자 장식 옆 첫 줄에 긴 낱말(3.4nm이고)이 못 들어가면 띄어쓰기가 크게 벌어진다 → 2줄 장식으로.
+     같은 실측식: 크기 = (1 × 1.8 + 0.975) ÷ 0.98 = 2.832em, 위 여백 0.096em(장식 기준) → 잉크가 첫 줄 한글 윗선~둘째 줄 아랫선. */
+  .main > p.lead::first-letter { font-size: 2.832em; margin-top: .096em; }
+}
 .main > h3 { position: relative; font-family: var(--serif); font-weight: 900; font-size: max(22px, calc(var(--fs) * 1.4)); line-height: var(--L); letter-spacing: -.03em; margin: calc(var(--L) * 1.5) 0 calc(var(--L) * .5); padding-top: calc(var(--L) * .5); }
 .main > h3::before { content: ""; position: absolute; top: 0; left: 0; width: 36px; height: 3px; background: var(--c); }
 .main > h4 { font-family: var(--sans); font-weight: 700; font-size: var(--fs); line-height: var(--L); margin: var(--L) 0 0; color: var(--ink); }
@@ -642,7 +653,7 @@ table.cmp th:last-child, table.cmp td:last-child { padding-right: 0; }
   .cover-side { padding: 28px var(--gutter) 0; }
   .show-head { grid-template-columns: 1fr; }
   .toc-head { grid-template-columns: 1fr; }
-  .toc-head p { justify-self: start; text-align: left; }
+  .toc-head p { justify-self: start; }
 
   .body { grid-template-columns: minmax(0, 1fr); }
   /* JS가 없을 때만 보이는 모양: 곁상자를 본문 아래 두 칸으로 */
